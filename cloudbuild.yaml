@@ -1,0 +1,70 @@
+# Cloud Build configuration for Variant Dashboard - Panel Version
+# Panel uses websockets, so we need some specific settings
+
+steps:
+  # Build Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/variant-dashboard:$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/variant-dashboard:latest'
+      - '.'
+
+  # Push images
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/variant-dashboard:$COMMIT_SHA']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/variant-dashboard:latest']
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'variant-dashboard'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/variant-dashboard:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      # Memory for data caching
+      - '--memory'
+      - '4Gi'
+      # 2 CPUs
+      - '--cpu'
+      - '2'
+      # Request timeout (Panel needs longer for websocket setup)
+      - '--timeout'
+      - '300'
+      # Concurrency - Panel with websockets needs lower concurrency
+      - '--concurrency'
+      - '20'
+      # Session affinity for websockets
+      - '--session-affinity'
+      # Minimum 1 instance to avoid cold starts
+      - '--min-instances'
+      - '1'
+      - '--max-instances'
+      - '10'
+      - '--allow-unauthenticated'
+      - '--service-account'
+      - 'variant-dashboard-sa@$PROJECT_ID.iam.gserviceaccount.com'
+      - '--set-env-vars'
+      - 'GCS_CACHE_BUCKET=variant-dashboard-cache-$PROJECT_ID,BOKEH_ALLOW_WS_ORIGIN=*'
+      # CPU always allocated
+      - '--cpu-boost'
+      - '--no-cpu-throttling'
+
+images:
+  - 'gcr.io/$PROJECT_ID/variant-dashboard:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/variant-dashboard:latest'
+
+timeout: '1200s'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
